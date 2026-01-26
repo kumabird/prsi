@@ -1,22 +1,42 @@
-// server.js
 import express from "express";
-import fetch from "node-fetch";
-import cors from "cors";
+import session from "express-session";
+import path from "path";
 
 const app = express();
-app.use(cors());
 
-app.get("/proxy", async (req, res) => {
-  const target = req.query.url;
-  if (!target) return res.status(400).send("url is required");
+app.use(express.urlencoded({ extended: true }));
 
-  try {
-    const response = await fetch(target);
-    const text = await response.text();
-    res.send(text);
-  } catch (e) {
-    res.status(500).send("Error fetching target");
+app.use(
+  session({
+    secret: "secret-key",
+    resave: false,
+    saveUninitialized: true,
+  })
+);
+
+// パスワードページ
+app.get("/", (req, res) => {
+  if (req.session.loggedIn) {
+    return res.redirect("/home");
   }
+  res.sendFile(path.join(process.cwd(), "password.html"));
+});
+
+// パスワードチェック
+app.post("/login", (req, res) => {
+  if (req.body.pass === "157514") {
+    req.session.loggedIn = true;
+    return res.redirect("/home");
+  }
+  res.send("パスワードが違います");
+});
+
+// 認証が必要なページ
+app.get("/home", (req, res) => {
+  if (!req.session.loggedIn) {
+    return res.redirect("/");
+  }
+  res.send("ログイン成功！ここが本編です。");
 });
 
 app.listen(process.env.PORT || 3000);

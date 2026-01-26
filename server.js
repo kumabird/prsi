@@ -13,7 +13,7 @@ app.use(
   })
 );
 
-// パスワード入力ページ（HTMLを直接埋め込み）
+// パスワード入力ページ
 const passwordPage = `
 <!DOCTYPE html>
 <html lang="ja">
@@ -31,17 +31,20 @@ const passwordPage = `
 </html>
 `;
 
-// ログイン後のページ（HTMLを直接埋め込み）
-const homePage = `
+// URL入力ページ（ログイン後に表示）
+const urlPage = `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>本編</title>
+  <title>URL入力</title>
 </head>
 <body>
-  <h1>ログイン成功！</h1>
-  <p>ここが本編ページです。</p>
+  <h2>URLを入力してください</h2>
+  <form method="GET" action="/proxy">
+    <input type="text" name="url" placeholder="https://example.com">
+    <button type="submit">取得</button>
+  </form>
 </body>
 </html>
 `;
@@ -63,12 +66,12 @@ app.post("/login", (req, res) => {
   res.send("パスワードが違います");
 });
 
-// 本編ページ
+// URL入力ページ
 app.get("/home", (req, res) => {
   if (!req.session.loggedIn) {
     return res.redirect("/");
   }
-  res.send(homePage);
+  res.send(urlPage);
 });
 
 // プロキシ機能

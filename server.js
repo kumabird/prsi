@@ -1,95 +1,36 @@
 import express from "express";
-import session from "express-session";
 import fetch from "node-fetch";
+import { JSDOM } from "jsdom";
 
 const app = express();
-app.use(express.urlencoded({ extended: true }));
 
-app.use(
-  session({
-    secret: "secret-key",
-    resave: false,
-    saveUninitialized: true,
-  })
-);
-
-// パスワード入力ページ
-const passwordPage = `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>パスワード入力</title>
-</head>
-<body>
-  <h2>パスワードを入力してください</h2>
-  <form method="POST" action="/login">
-    <input type="password" name="pass" placeholder="パスワード">
-    <button type="submit">送信</button>
-  </form>
-</body>
-</html>
-`;
-
-// URL入力ページ（ログイン後に表示）
-const urlPage = `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>URL入力</title>
-</head>
-<body>
-  <h2>URLを入力してください</h2>
-  <form method="GET" action="/proxy">
-    <input type="text" name="url" placeholder="https://example.com">
-    <button type="submit">取得</button>
-  </form>
-</body>
-</html>
-`;
-
-// 初期ページ
-app.get("/", (req, res) => {
-  if (req.session.loggedIn) {
-    return res.redirect("/home");
-  }
-  res.send(passwordPage);
-});
-
-// パスワードチェック
-app.post("/login", (req, res) => {
-  if (req.body.pass === "157514") {
-    req.session.loggedIn = true;
-    return res.redirect("/home");
-  }
-  res.send("パスワードが違います");
-});
-
-// URL入力ページ
-app.get("/home", (req, res) => {
-  if (!req.session.loggedIn) {
-    return res.redirect("/");
-  }
-  res.send(urlPage);
-});
-
-// プロキシ機能
 app.get("/proxy", async (req, res) => {
-  if (!req.session.loggedIn) {
-    return res.status(403).send("ログインが必要です");
-  }
-
   const target = req.query.url;
-  if (!target) return res.status(400).send("url が必要です");
+  if (!target) return res.status(400).send("URL が必要です");
 
   try {
     const response = await fetch(target);
-    const text = await response.text();
-    res.send(text);
+    let html = await response.text();
+
+    const dom = new JSDOM(html);
+    const document = dom.window.document;
+
+    // URL 書き換え
+    document.querySelectorAll("[src]").forEach(el => {
+      const url = new URL(el.src, target).href;
+      el.src = `/proxy?url=${encodeURIComponent(url)}`;
+    });
+
+    document.querySelectorAll("[href]").forEach(el => {
+      const url = new URL(el.href, target).href;
+      el.href = `/proxy?url=${encodeURIComponent(url)}`;
+    });
+
+    res.set("Access-Control-Allow-Origin", "*");
+    res.send(dom.serialize());
   } catch (e) {
-    res.status(500).send("取得エラー");
+    res.status(500).send("取得に失敗しました");
   }
 });
 
-app.listen(process.env.PORT || 3000);
+app.listen(3000, () => console.log("Proxy running"));

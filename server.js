@@ -3,7 +3,10 @@ const fetch = require("node-fetch");
 const { JSDOM } = require("jsdom");
 const app = express();
 
-// 相対パス → 絶対URLに変換
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
+// 相対パス → 絶対URL
 function absolute(base, relative) {
     try {
         return new URL(relative, base).href;
@@ -36,22 +39,41 @@ app.get("/", (req, res) => {
     `);
 });
 
-// プロキシ本体
-app.get("/proxy", async (req, res) => {
-    const targetUrl = req.query.url;
+// GET / POST 両対応のプロキシ
+app.all("/proxy", async (req, res) => {
+    const targetUrl = req.method === "GET" ? req.query.url : req.body.url;
     if (!targetUrl) return res.status(400).send("URL is required");
 
     try {
-        const response = await fetch(targetUrl);
+        const options = {
+            method: req.method,
+            headers: { ...req.headers },
+            redirect: "follow"
+        };
+
+        // Cookie を転送
+        if (req.headers.cookie) {
+            options.headers.cookie = req.headers.cookie;
+        }
+
+        // POST の場合は body を転送
+        if (req.method === "POST") {
+            options.body = new URLSearchParams(req.body);
+        }
+
+        const response = await fetch(targetUrl, options);
         const contentType = response.headers.get("content-type");
 
-        // HTML の場合は書き換え処理
+        // CSP / X-Frame-Options を削除
+        res.removeHeader("Content-Security-Policy");
+        res.removeHeader("X-Frame-Options");
+
+        // HTML の場合は書き換え
         if (contentType && contentType.includes("text/html")) {
-            const html = await response.text();
+            let html = await response.text();
             const dom = new JSDOM(html);
             const document = dom.window.document;
 
-            // URL書き換え関数
             const rewrite = (selector, attr) => {
                 document.querySelectorAll(selector).forEach(el => {
                     const url = el.getAttribute(attr);
@@ -64,16 +86,25 @@ app.get("/proxy", async (req, res) => {
                 });
             };
 
-            // HTML内のリンクを全部書き換える
+            // HTML 内の URL を書き換え
             rewrite("a", "href");
             rewrite("img", "src");
             rewrite("script", "src");
             rewrite("link", "href");
+            rewrite("iframe", "src");
+            rewrite("form", "action");
+
+            // JavaScript 内の URL を簡易置換
+            html = dom.serialize().replace(
+                /src="\/([^"]+)"/g,
+                (match, p1) =>
+                    `src="/proxy?url=${encodeURIComponent(absolute(targetUrl, "/" + p1))}"`
+            );
 
             res.set("Content-Type", "text/html");
-            res.send(dom.serialize());
+            res.send(html);
         } else {
-            // HTML以外（画像・CSS・JS）はそのまま返す
+            // HTML 以外はそのまま返す
             const buffer = await response.buffer();
             res.set("Content-Type", contentType);
             res.send(buffer);
@@ -84,7 +115,7 @@ app.get("/proxy", async (req, res) => {
     }
 });
 
-// Render用ポート
+// Render 用ポート
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log("Proxy server running");

@@ -3,6 +3,7 @@ const fetch = require("node-fetch");
 const { JSDOM } = require("jsdom");
 const app = express();
 
+// 相対パス → 絶対URLに変換
 function absolute(base, relative) {
     try {
         return new URL(relative, base).href;
@@ -11,10 +12,31 @@ function absolute(base, relative) {
     }
 }
 
+// トップページ（検索画面）
 app.get("/", (req, res) => {
-    res.send("Proxy server is running");
+    res.send(`
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Proxy Search</title>
+            <style>
+                body { font-family: sans-serif; text-align: center; margin-top: 80px; }
+                input { width: 350px; padding: 10px; font-size: 16px; }
+                button { padding: 10px 20px; font-size: 16px; }
+            </style>
+        </head>
+        <body>
+            <h2>Proxy Search</h2>
+            <form action="/proxy" method="get">
+                <input type="text" name="url" placeholder="URLを入力">
+                <button type="submit">開く</button>
+            </form>
+        </body>
+        </html>
+    `);
 });
 
+// プロキシ本体
 app.get("/proxy", async (req, res) => {
     const targetUrl = req.query.url;
     if (!targetUrl) return res.status(400).send("URL is required");
@@ -29,7 +51,7 @@ app.get("/proxy", async (req, res) => {
             const dom = new JSDOM(html);
             const document = dom.window.document;
 
-            // すべてのタグの URL を書き換える
+            // URL書き換え関数
             const rewrite = (selector, attr) => {
                 document.querySelectorAll(selector).forEach(el => {
                     const url = el.getAttribute(attr);
@@ -42,6 +64,7 @@ app.get("/proxy", async (req, res) => {
                 });
             };
 
+            // HTML内のリンクを全部書き換える
             rewrite("a", "href");
             rewrite("img", "src");
             rewrite("script", "src");
@@ -50,7 +73,7 @@ app.get("/proxy", async (req, res) => {
             res.set("Content-Type", "text/html");
             res.send(dom.serialize());
         } else {
-            // HTML 以外（画像・CSS・JS）はそのまま返す
+            // HTML以外（画像・CSS・JS）はそのまま返す
             const buffer = await response.buffer();
             res.set("Content-Type", contentType);
             res.send(buffer);
@@ -61,6 +84,8 @@ app.get("/proxy", async (req, res) => {
     }
 });
 
-app.listen(3000, () => {
+// Render用ポート
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
     console.log("Proxy server running");
 });
